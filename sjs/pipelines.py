@@ -20,8 +20,8 @@ class SjsPipeline(object):
         query = Query(Question)
         query.equal_to('origin_url', origin_url)
 
-        if origin_url:
-            query.include('')
+        # if origin_url:
+        #     query.include('')
 
     # origin_url = Field()
     # analysis = Field()
