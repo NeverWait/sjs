@@ -3,12 +3,14 @@
 import logging
 
 from scrapy.exceptions import CloseSpider
-from scrapy.spider import Spider, Request
+from scrapy.spiders import Spider, Request
 from scrapy.http import FormRequest
+from scrapy.utils.request import request_fingerprint
 from leancloud import Query, init, Object
 import random
 from bs4 import BeautifulSoup
-from scrapy.selector import Selector
+import sjs.settings
+from qiniu import Auth, BucketManager
 # from sjs.utils import LeanCloudError, Question
 # from sjs.items import QuestionItem
 
@@ -47,22 +49,74 @@ log_info = {
 
 class AnsSpider(Spider):
     name = "ans"
+    custom_settings = {
+        "DOWNLOAD_DELAY": 5,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 2
+    }
     start_urls = (
         'http://www.yitiku.cn/login/',
     )
 
+    def __init__(self, *a, **kw):
+        super(AnsSpider, self).__init__(*a, **kw)
+        self._bucket_mgr = None
+        self._bucket = getattr(sjs.settings, 'PIPELINE_QINIU_BUCKET', None)
+        self._key_prefix = getattr(sjs.settings, 'PIPELINE_QINIU_KEY_PREFIX', None)
+        # self.juan_cache = None
+
+    @property
+    def bucket_mgr(self):
+        """
+        get qiniu bucket manager
+        :return:
+        """
+        if not self._bucket_mgr:
+            ak = getattr(sjs.settings, 'PIPELINE_QINIU_AK', None)
+            sk = getattr(sjs.settings, 'PIPELINE_QINIU_SK', None)
+            q = Auth(ak, sk)
+            self._bucket_mgr = BucketManager(q)
+        return self._bucket_mgr
+
+    def fetch_file(self, url):
+        if url[0:3] != 'www':
+            url = 'http://www.yitiku.cn%s' % url
+        request = Request(url, meta={'qiniu_key_generator': 'qiniu_key_generator'})
+        key = '%s%s' % (self._key_prefix, request_fingerprint(request))
+        if not self._bucket:
+            logger.error('No bucket specified')
+            raise IOError
+        if not key:
+            logger.error('No key specified')
+            raise IOError
+        ret, error = self.bucket_mgr.fetch(url, self._bucket, key)
+        if ret:
+            return {
+                'url': url,
+                'checksum': ret['hash'],
+                'bucket': self._bucket,
+                'key': ret['key']
+            }
+        else:
+            raise IOError
+
     def parse(self, response):
+        # formdata={
+        #         'account': user,
+        #         'password': pwd,
+        #         'remember': 'on'
+        #     },
         logger.debug('start form request')
 
         user = random.choice(log_info.keys())  # 随机选择一个用户登陆
         pwd = log_info[user]
+
+        logger.info(user)  # 输出使用的是那个账号
 
         return FormRequest.from_response(
             response,
             formdata={
                 'account': user,
                 'password': pwd,
-                'remember': 'on'
             },
             callback=self.after_login
         )
@@ -73,6 +127,9 @@ class AnsSpider(Spider):
         if "authentication failed" in response.body:
             raise CloseSpider('login failed')
         if "进入我的主页" in response.body:
+
+            title = response.xpath('/html/head/title/text()').extract()[0]
+            logger.info(title)
             query_answer = Query(Question)  # 查询出答案为空的试题
             query_answer.equal_to('answer', None)
 
@@ -80,57 +137,84 @@ class AnsSpider(Spider):
             query_subject.equal_to('subject', '高中数学')
 
             main_query = Query.and_(query_answer, query_subject)  # and查询
-            main_query.limit(3)  # 每次限定五个
+            main_query.limit(2)  # 每次限定五个
 
             results = main_query.find()
             results_len = len(results)  # 查询结果有可能不足五个，所以循环的长度不能使用5
-            print results_len
-            print '!!!'
+
             for i in xrange(results_len):
                 res_url = results[i].get('origin_url')  # 格式为/shiti/774552.html
                 question_url = 'http://www.yitiku.cn%s' % res_url
-                print question_url + '####'
+
+                logger.info(question_url + '####')
+
                 yield Request(url=question_url,
                               callback=self.parse_answer)
 
     def parse_answer(self, response):
-        analysis_li = response.xpath('//div[@class="quesTxt quesTxt2"]/ul[2]/li[1]').extract()  # 有的为空
-        if len(analysis_li) == 0:  # 如果提取的解析的li标签为空，说明该用户可能被屏蔽
-            # TODO:更换用户重新爬取
-            pass
+        analysis_answer_list = response.xpath('//div[@class="quesTxt quesTxt2"]').extract()  # 包含试题解析和答案的div标签
+        if len(analysis_answer_list) == 0:  # 该爬虫有可能被禁
+            # TODO:爬虫被禁，更换用户
+            logger.debug('reqeust forbiden!!!')
         else:
-            # 取出li标签中的div标签
-            # TODO:将其中的图片路径提取出来保存到七牛上面
-            analysis_div = response.xpath('//div[@class="quesTxt quesTxt2"]/ul[2]/li[1]/div[@class="editorBox"]').extract()[0]
-            analysis = analysis_div
+            analysis_answer_label = analysis_answer_list[0]
+            analysis_answer_soup = BeautifulSoup(analysis_answer_label, 'lxml')
+            analysis_div = analysis_answer_soup.find('div', class_='editorBox')  # 找到试题解析的div
 
-        answer_li = response.xpath('//div[@class="quesTxt quesTxt2"]/ul[2]/li[2]').extract()[0]  # 答案格式是<div>或者<b>，但是前一个标签都是font
+            analysis_imgs = []
+            analysis_imgs_list = analysis_div.find_all('img')
+            analysis_imgs_count = len(analysis_imgs_list)
+            if analysis_imgs_count == 1:
+                analysis_imgs.append(self.fetch_file(analysis_div.find('img')['src']))  # 保存试题解析的图片的信息
+                analysis_div.find('img')['src'] = '0'  # 把图片的src改为序号
+            elif analysis_imgs_count > 1:
+                analysis_imgs.append(self.fetch_file(analysis_div.find('img')['src']))  # 由于find_next_siblings是从第二个开始的，先保存试题解析的第一个的图片的信息
+                analysis_div.find('img')['src'] = '0'  # 把第一个图片的src改为序号
+                m = 1
+                for each_analysis_img in analysis_div.img.find_next_siblings('img'):
+                    analysis_img_url = each_analysis_img['src']
+                    analysis_imgs.append(self.fetch_file(analysis_img_url))
+                    each_analysis_img['src'] = str(m)
+                    m += 1
+            analysis = str(analysis_div)  # 无论解析内容是否存在，标签一定存在,有的有图片有的没有图片。由于需要修改图片的src，所以此句要放到后面
 
-        answer_soup = BeautifulSoup(answer_li, 'lxml')  # 从中选出font标签的后一个标签，
-        answer_label = answer_soup.find('font').find_next_sibling()  # div或者b或者None
-        if answer_label != None:
-            answer_label_str = str(answer_label)
-            if answer_label_str[0:2] == '<b':  # 说明为b标签
-                answer = Selector(text=answer_label_str).xpath('//b/text()').extract()[0]
-            elif answer_label_str[0:2] == '<d':
-                # TODO:把里面的图片取出来
-                answer = Selector(text=answer_label_str).xpath('//div[@class="editorBox"]').extract()[0]
-            else:  # 另作处理
-                answer = ''
-        else:
-            answer = ''
+            answer_label = analysis_answer_soup.find('font', text='答案').find_next_sibling()  # 找到答案的标签，无论答案是否存在，答案的标签一定存在，答案标签是<div>或者<b>
+
+            answer_imgs = []
+            answer_imgs_list = answer_label.find_all('img')
+            answer_imgs_count = len(answer_imgs_list)
+            if answer_imgs_count == 1:
+                answer_imgs.append(self.fetch_file(answer_label.find('img')['src']))  # 保存图片信息
+                answer_label.find('img')['src'] = '0'  # 修改图片的序号
+            elif answer_imgs_count > 1:
+                answer_imgs.append(self.fetch_file(answer_label.find('img')['src']))  # find_next_siblings是从第二个img开始的，所以需要先把第一个加入
+                answer_label.find('img')['src'] = '0'
+                n = 1
+                for each_answer_img in answer_label.img.find_next_siblings('img'):
+                    answer_img_url = each_answer_img['src']
+                    answer_imgs.append(self.fetch_file(answer_img_url))
+                    each_answer_img['src'] = str(n)
+                    n += 1
+            answer = str(answer_label)  # 由于需要修改图片的src，所以此句要放到后面
+
+        question_url_split = response.url.split('/')
+        url_split_len = len(question_url_split)
+        if question_url_split[url_split_len-1] == '':
+            origin_url = '/shiti/%s' % question_url_split[url_split_len-2]
+        origin_url = '/shiti/%s' % question_url_split[url_split_len-1]
+        print origin_url + '******'
         data = {
-            'origin_url': "/shiti/%s" % response.url.split('/')[-1],
-            # 'point_urls': point_urls,
-            # 'point_texts': point_texts,
             'analysis': analysis,
-            'answer': answer
+            'analysis_imgs': analysis_imgs,
+            'answer_imgs': answer_imgs,
+            'answer': answer,
+            'origin_url': origin_url
+
         }
 
         query = Query(Question)
         query.equal_to('origin_url', data['origin_url'])
         results = query.first()
-        results.set('analysis', data['analysis'])
-        results.set('answer', data['answer'])
-
+        for k in data:
+            results.set(k, data[k])
         results.save()
