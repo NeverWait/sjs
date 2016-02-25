@@ -1,6 +1,0 @@
-Accept-Language: en
-Accept-Encoding: gzip,deflate
-Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
-User-Agent: Scrapy/1.0.4 (+http://scrapy.org)
-Cookie: ytkuser=%7B%22id%22%3A%22316930%22%2C%22deadline%22%3A%220%22%2C%22feature%22%3A%22d51ea66c73520bc65e3dc3689dfa196f%22%7D; PHPSESSID=k7339sq078qoji35dj0g7it6a4
-Referer: http://www.yitiku.cn/
