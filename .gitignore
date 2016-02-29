@@ -6,4 +6,3 @@ dbs
 build
 *.egg-info
 .scrapy
-env

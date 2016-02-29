@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import logging
 # Scrapy settings for sjs project
 #
 # For simplicity, this file contains only settings considered important or
@@ -38,7 +39,7 @@ CONCURRENT_REQUESTS_PER_IP=16
 # Override the default request headers:
 # DEFAULT_REQUEST_HEADERS = {
 # }
-PROXY_ENABLED = False
+# PROXY_ENABLED = False
 # Enable or disable spider middlewares
 # See http://scrapy.readthedocs.org/en/latest/topics/spider-middleware.html
 # SPIDER_MIDDLEWARES = {
@@ -71,7 +72,7 @@ PIPELINE_QINIU_AK = '3xw5uASc565Mr44Vlt0iimqsZoBk3I0nM88YEjSP'
 PIPELINE_QINIU_SK = 'ExEjTZG2QCVBktGMuM3YluorvQ28qQ5utK5mobRP'
 PIPELINE_QINIU_ENABLED = 1
 PIPELINE_QINIU_BUCKET = 'cache'
-# PIPELINE_QINIU_KEY_PREFIX = ''
+PIPELINE_QINIU_KEY_PREFIX = 'http://7xr69d.com1.z0.glb.clouddn.com/'
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See http://doc.scrapy.org/en/latest/topics/autothrottle.html
@@ -93,3 +94,4 @@ HTTPCACHE_IGNORE_HTTP_CODES=[]
 HTTPCACHE_STORAGE='scrapy.extensions.httpcache.FilesystemCacheStorage'
 HTTPCACHE_POLICY = 'scrapy.extensions.httpcache.RFC2616Policy'
 DOWNLOAD_TIMEOUT = 30
+LOG_LEVEL = logging.DEBUG

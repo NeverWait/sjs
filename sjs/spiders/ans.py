@@ -11,6 +11,7 @@ import random
 from bs4 import BeautifulSoup
 import sjs.settings
 from qiniu import Auth, BucketManager
+from proxy_base import CookiesProxySpider
 # from sjs.utils import LeanCloudError, Question
 # from sjs.items import QuestionItem
 
@@ -26,43 +27,25 @@ Question = Object.extend("Question")
 4 保存到数据库
 5 建立和知识点的关系
 """
-# 登陆信息
-log_info = {
-    '8396621sina_qq@2925.com': 'mateng',
-    '882349sina_168@2925.com': 'yilian',
-    '882349sina_163@2925.com': 'caoshi',
-    '882349sina_126@2925.com': 'sunxia',
-    '882349sina_yahoo@2925.com': 'liaoli',
-    '882349sina_edu@2925.com': 'ouyang',
-    '882349sina_sohou@2925.com': 'zhangl',
-    '882349sina_qq@2925.com': 'guoliu',
-    '882349sina_a@2925.com': 'liuwan',
-    '94993308q_gmail@2925.com': 'xinxin',
-    '94993308q_126@2925.com': 'lanlan',
-    '94993308q_163@2925.com': 'wanliu',
-    '94993308q_edu@2925.com': 'liuyan',
-    '94993308q_yahoo@2925.com': 'chaoya',
-    '94993308q_168@2925.com': 'liwang',
-    '94993308q_google@2925.com': 'lisisi',
-}
 
-
-class AnsSpider(Spider):
+class AnsSpider(CookiesProxySpider):
     name = "ans"
     custom_settings = {
         "DOWNLOAD_DELAY": 5,
         "CONCURRENT_REQUESTS_PER_DOMAIN": 2
     }
-    start_urls = (
-        'http://www.yitiku.cn/login/',
-    )
+    # start_urls = (
+    #     'http://www.yitiku.cn/login/',
+    # )
 
     def __init__(self, *a, **kw):
         super(AnsSpider, self).__init__(*a, **kw)
         self._bucket_mgr = None
         self._bucket = getattr(sjs.settings, 'PIPELINE_QINIU_BUCKET', None)
         self._key_prefix = getattr(sjs.settings, 'PIPELINE_QINIU_KEY_PREFIX', None)
-        # self.juan_cache = None
+        self.juan_cache = None
+        # self.account = None
+        # print self.account
 
     @property
     def bucket_mgr(self):
@@ -99,6 +82,26 @@ class AnsSpider(Spider):
         else:
             raise IOError
 
+    # def start_requests(self):
+    #     logger.info('------begin-----')
+    #     user = self.account
+    #     pwd = self.password
+    #     proxy = self.proxy_addr
+    #     return [FormRequest('http://www.yitiku.cn/login/',
+    #                         formdata=
+    #                         {
+    #                             'account': user,
+    #                             'password': pwd,
+    #                         },
+    #                         meta={'proxy': 'http://%s' % proxy},
+    #                         callback=self.after_login
+    #                         )
+    #             ]
+    def start_requests(self):
+        return [FormRequest('http://www.yitiku.cn/login/',
+                            method='GET',
+                            callback=self.parse)]
+
     def parse(self, response):
         # formdata={
         #         'account': user,
@@ -107,8 +110,9 @@ class AnsSpider(Spider):
         #     },
         logger.debug('start form request')
 
-        user = random.choice(log_info.keys())  # 随机选择一个用户登陆
-        pwd = log_info[user]
+        user = self.account
+        pwd = self.password
+        proxy = self.proxy_addr
 
         logger.info(user)  # 输出使用的是那个账号
 
@@ -118,6 +122,7 @@ class AnsSpider(Spider):
                 'account': user,
                 'password': pwd,
             },
+            meta={'proxy': 'http://%s' % proxy},
             callback=self.after_login
         )
 
@@ -146,7 +151,7 @@ class AnsSpider(Spider):
                 res_url = results[i].get('origin_url')  # 格式为/shiti/774552.html
                 question_url = 'http://www.yitiku.cn%s' % res_url
 
-                logger.info(question_url + '####')
+                logger.info('crawling %s' % question_url)
 
                 yield Request(url=question_url,
                               callback=self.parse_answer)
