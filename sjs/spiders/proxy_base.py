@@ -3,7 +3,7 @@
 import logging
 from scrapy import Spider
 from scrapy.exceptions import CloseSpider
-from scrapy.http import Request
+from scrapy.http import Request, FormRequest
 from scrapy.spidermiddlewares.httperror import HttpError
 from twisted.internet.defer import TimeoutError
 from twisted.internet.error import ConnectionRefusedError
@@ -30,9 +30,11 @@ class CookiesProxySpider(Spider):
     3 代表不能使用
     """
     name = 'proxy'
+    start_urls = (
+        'http://www.yitiku.cn/login/',
+    )
 
-    @staticmethod
-    def get_leancloud_proxies():
+    def get_leancloud_proxies(self):
         """
         返回不可用的或者正在使用的代理
         """
@@ -52,8 +54,7 @@ class CookiesProxySpider(Spider):
         unavailables_set = set(unavailables_list)
         return unavailables_set
 
-    @staticmethod
-    def get_kdl_api():
+    def get_kdl_api(self):
         """
         获取新的代理
         """
@@ -65,13 +66,12 @@ class CookiesProxySpider(Spider):
         head_proxies_set = set(head_proxies_list)
         return head_proxies_set
 
-    @staticmethod
-    def test_proxy():
+    def test_proxy(self):
         """
         经过测试返回一个可用的代理
         """
-        unavailable_set = CookiesProxySpider.get_leancloud_proxies()
-        new_proxies_set = CookiesProxySpider.get_kdl_api()
+        unavailable_set = self.get_leancloud_proxies()
+        new_proxies_set = self.get_kdl_api()
         difference_set = new_proxies_set - unavailable_set
 
         for each_proxy in difference_set:
@@ -81,7 +81,7 @@ class CookiesProxySpider(Spider):
             except:
                 # logger.info('proxy unavailable', each_proxy)
                 print 'proxy unavailable', each_proxy
-                CookiesProxySpider.save_proxy(each_proxy, 3)
+                self.save_proxy(each_proxy, 3)
                 continue
             if visit_ip.status_code == 200:
                 # logger.debug('ipip status code 200')
@@ -91,24 +91,25 @@ class CookiesProxySpider(Spider):
                 ip_soup = BeautifulSoup(ip_html, 'lxml')
                 ip_div = ip_soup.find('div', class_='ip_text')
                 each_ip_split = each_proxy.split('//')[1]
+                print ip_div.text.split(u'：')[1]
+                print each_ip_split.split(':')[0]
                 if ip_div.text.split(u'：')[1] == each_ip_split.split(':')[0]:
                     logger.info('use this ip: ', each_proxy)
                     print 'use this ip: ', each_proxy
-                    CookiesProxySpider.save_proxy(each_proxy, 0)
+                    self.save_proxy(each_proxy, 0)
                     return each_proxy
                     # print each_proxy
                     # break
                 else:
                     # logger.debug('ip is not proxy')
                     print 'ip is not proxy'
-                    CookiesProxySpider.save_proxy(each_proxy, 3)
+                    self.save_proxy(each_proxy, 3)
             else:
                 # logger.debug('ipip status is !200')
                 print 'ipip status is !200'
-                CookiesProxySpider.save_proxy(each_proxy, 3)
+                self.save_proxy(each_proxy, 3)
 
-    @staticmethod
-    def get_account():
+    def get_account(self):
         """
         获取没有使用的易题库账号
         """
@@ -126,8 +127,7 @@ class CookiesProxySpider(Spider):
             raise CloseSpider('leancloud cannot reach')
         return [email, password]
 
-    @staticmethod
-    def save_proxy(proxy, state):
+    def save_proxy(self, proxy, state):
         """
         保存账号
         """
@@ -142,8 +142,44 @@ class CookiesProxySpider(Spider):
 
     def __init__(self, *a, **kw):
         super(CookiesProxySpider, self).__init__(*a, **kw)
-        self.ytk_account = self.get_account()
-        self.proxy = self.test_proxy()
+        # ytk_account = self.get_account()
+        # self.account = ytk_account[0]
+        # self.password = ytk_account[1]
+        # self.proxy = self.test_proxy()
+
+    def parse(self, response):
+        logger.debug('start form request')
+
+        # user = self.account
+        # pwd = self.password
+        # proxy = self.proxy
+        user = '985677283@qq.com'
+        pwd = 'ytzyqpb1314'
+        proxy = 'http://110.73.2.241:8123'
+        logger.info(user)  # 输出使用的是那个账号
+
+        return FormRequest.from_response(
+            response,
+            formdata={
+                'account': user,
+                'password': pwd,
+            },
+            meta={'proxy': proxy},
+            callback=self.after_login
+        )
+
+    def after_login(self, response):
+        logger.debug('login form response parsing')
+
+        if "authentication failed" in response.body:
+            raise CloseSpider('login failed')
+        if "进入我的主页" in response.body:
+            print response.xpath('/html/head/title/text()').extract()[0]
+            print response.headers
+            print response.meta
+            print response.headers.getlist('Set-Cookie')
+        else:
+            print 'log error'
 
     @staticmethod
     def error_handle(failure):
@@ -154,8 +190,8 @@ class CookiesProxySpider(Spider):
         elif failure.check(ConnectionRefusedError):
             logger.info('Connection Refused Error')
 
-#
-# if __name__ == '__main__':
-#     spider = CookiesProxySpider()
-#     aa = spider.test_proxy()
-#     print aa
+
+if __name__ == '__main__':
+    spider = CookiesProxySpider()
+    aa = spider.get_account()
+    print aa[0], aa[1]
