@@ -153,9 +153,11 @@ class CookiesProxySpider(Spider):
         # user = self.account
         # pwd = self.password
         # proxy = self.proxy
-        user = '985677283@qq.com'
-        pwd = 'ytzyqpb1314'
-        proxy = 'http://110.73.2.241:8123'
+        # meta={'proxy': proxy},
+        # 您当前的IP：92.222.237.93
+        user = '882349sina_163@2925.com'
+        pwd = 'caoshi'
+        proxy = 'http://103.251.43.53:80'
         logger.info(user)  # 输出使用的是那个账号
 
         return FormRequest.from_response(
@@ -163,8 +165,11 @@ class CookiesProxySpider(Spider):
             formdata={
                 'account': user,
                 'password': pwd,
+                'remember': 'on',
             },
-            meta={'proxy': proxy},
+            meta={
+                'cookiejar': 1,
+            },
             callback=self.after_login
         )
 
@@ -176,10 +181,20 @@ class CookiesProxySpider(Spider):
         if "进入我的主页" in response.body:
             print response.xpath('/html/head/title/text()').extract()[0]
             print response.headers
-            print response.meta
             print response.headers.getlist('Set-Cookie')
+            question_url = 'http://www.yitiku.cn/shiti/772565.html'
+            yield Request(url=question_url,
+                          meta={'cookiejar': response.meta['cookiejar']},
+                          headers=response.headers,
+                          callback=self.parse_answer)
         else:
             print 'log error'
+
+    def parse_answer(self, response):
+        analysis_answer_list = response.xpath('//div[@class="quesTxt quesTxt2"]').extract()
+        print analysis_answer_list
+        print response.headers.getlist('Set-Cookie')
+        print response.meta['cookiejar']
 
     @staticmethod
     def error_handle(failure):
@@ -191,7 +206,7 @@ class CookiesProxySpider(Spider):
             logger.info('Connection Refused Error')
 
 
-if __name__ == '__main__':
-    spider = CookiesProxySpider()
-    aa = spider.get_account()
-    print aa[0], aa[1]
+# if __name__ == '__main__':
+#     spider = CookiesProxySpider()
+#     aa = spider.get_account()
+#     print aa[0], aa[1]

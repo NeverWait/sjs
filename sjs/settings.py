@@ -32,13 +32,15 @@ CONCURRENT_REQUESTS_PER_IP=16
 
 # Disable cookies (enabled by default)
 # COOKIES_ENABLED=False  # cookies一定要开启，否则在登陆网站抓取答案的时候会出错
-
+COOKIES_DEBUG=True
 # Disable Telnet Console (enabled by default)
 #TELNETCONSOLE_ENABLED=False
 
 # Override the default request headers:
-# DEFAULT_REQUEST_HEADERS = {
-# }
+DEFAULT_REQUEST_HEADERS = {
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en',
+}
 # PROXY_ENABLED = False
 # Enable or disable spider middlewares
 # See http://scrapy.readthedocs.org/en/latest/topics/spider-middleware.html
